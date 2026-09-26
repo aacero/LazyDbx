@@ -75,11 +75,17 @@ export async function dbxExcludeList(): Promise<string[]> {
     // daemon resolves them against wherever the command runs. Pin it to the
     // Dropbox root so results are stable regardless of where lazydbx started.
     const result = await $`dropbox exclude list`.cwd(DROPBOX_HOME).text()
-    const lines = result.trim().split("\n").filter((l) => l.length > 0)
-    // First line is often a header like "Excluded:"
-    if (lines[0]?.toLowerCase().includes("excluded")) {
+    const trimmed = result.trim()
+    if (!trimmed || trimmed.toLowerCase().includes("no directories are being ignored")) {
+      return []
+    }
+
+    const lines = trimmed.split("\n").filter((l) => l.length > 0)
+    // Strip header line if present (e.g. "Excluded:")
+    if (lines[0]?.trim().toLowerCase() === "excluded:") {
       lines.shift()
     }
+
     return lines
       .map((l) => resolve(DROPBOX_HOME, l.trim()))
       .filter((l) => l.length > 0)
