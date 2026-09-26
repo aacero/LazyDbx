@@ -33,6 +33,7 @@ import { loadTheme, type Theme } from "./theme.ts"
 import { ensureAuth, authorize, tryRefresh } from "./auth.ts"
 import { $ } from "bun"
 import { homedir } from "node:os"
+import { realpathSync } from "node:fs"
 import { join } from "node:path"
 
 // --- Colors ---
@@ -52,7 +53,7 @@ interface State {
   lastLink: string
 }
 
-const DROPBOX_HOME = join(homedir(), "Dropbox")
+const DROPBOX_HOME = realpathSync(join(homedir(), "Dropbox"))
 
 let appConfig: Config = {}
 let accessToken: string | null = null
