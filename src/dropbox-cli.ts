@@ -5,6 +5,17 @@ import { join, basename, dirname, resolve } from "node:path"
 import { homedir } from "node:os"
 import { apiListFolder } from "./dropbox-api.ts"
 
+function resolveDropboxHome(): string {
+  const defaultPath = join(homedir(), "Dropbox")
+  try {
+    return realpathSync(defaultPath)
+  } catch {
+    return defaultPath
+  }
+}
+
+export const DROPBOX_HOME = resolveDropboxHome()
+
 export interface FileEntry {
   name: string
   status: string
@@ -112,8 +123,6 @@ export interface ServerEntry {
   syncState: SyncState
   isDir: boolean
 }
-
-const DROPBOX_HOME = realpathSync(join(homedir(), "Dropbox"))
 
 /**
  * List all entries at one level for the Server tab.
