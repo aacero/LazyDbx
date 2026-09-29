@@ -1,6 +1,6 @@
 import { $ } from "bun"
 import { stat, readdir } from "node:fs/promises"
-import { realpathSync } from "node:fs"
+import { realpathSync, openSync, readSync, closeSync } from "node:fs"
 import { join, basename, dirname, resolve } from "node:path"
 import { homedir } from "node:os"
 import { apiListFolder } from "./dropbox-api.ts"
@@ -16,6 +16,36 @@ function resolveDropboxHome(): string {
 
 export const DROPBOX_HOME = resolveDropboxHome()
 
+function isElfBinary(filePath: string): boolean {
+  try {
+    const realPath = realpathSync(filePath)
+    const fd = openSync(realPath, "r")
+    const buf = Buffer.alloc(4)
+    readSync(fd, buf, 0, 4, 0)
+    closeSync(fd)
+    return buf[0] === 0x7f && buf[1] === 0x45 && buf[2] === 0x4c && buf[3] === 0x46
+  } catch {
+    return false
+  }
+}
+
+function resolveDropboxCmd(): string {
+  // On Arch Linux / Omarchy / CachyOS, the CLI package installs `dropbox-cli` (Python script),
+  // while `dropbox` is the desktop GUI client ELF executable.
+  // On Ubuntu/Debian, `dropbox` is the Python script CLI.
+  // We prefer non-ELF CLI scripts (`dropbox-cli`, `dropbox.py`, or `dropbox`).
+  const candidates = ["dropbox-cli", "dropbox.py", "dropbox"]
+  for (const cmd of candidates) {
+    const path = Bun.which(cmd)
+    if (path && !isElfBinary(path)) {
+      return cmd
+    }
+  }
+  return Bun.which("dropbox-cli") || "dropbox"
+}
+
+export const DROPBOX_CMD = resolveDropboxCmd()
+
 export interface FileEntry {
   name: string
   status: string
@@ -23,24 +53,28 @@ export interface FileEntry {
 }
 
 export async function dbxRunning(): Promise<boolean> {
+  // Fast process check first: pgrep is instant (<20ms) and avoids spawning Python/GUI
   try {
-    const result = await $`dropbox running`.quiet().text()
-    if (result.trim() === "1") return true
+    const result = await $`pgrep -x dropbox || pgrep -x dropboxd`.quiet().text()
+    if (result.trim().length > 0) return true
   } catch {
-    // dropbox running sometimes returns non-zero exit code even when running
+    // Process not found
   }
-  // Fallback: check if dropbox process exists
+
+  // Fallback: check via the CLI tool
   try {
-    const result = await $`pgrep -x dropbox`.quiet().text()
-    return result.trim().length > 0
+    const result = await $`${DROPBOX_CMD} running`.quiet().nothrow()
+    if (result.exitCode === 1 || result.text().trim() === "1") return true
   } catch {
-    return false
+    // CLI check failed
   }
+
+  return false
 }
 
 export async function dbxStatus(): Promise<string> {
   try {
-    const result = await $`dropbox status`.text()
+    const result = await $`${DROPBOX_CMD} status`.text()
     return result.trim()
   } catch {
     return "Unknown"
@@ -74,7 +108,7 @@ export async function dbxExcludeList(): Promise<string[]> {
     // dropbox exclude list prints paths relative to the process CWD, and the
     // daemon resolves them against wherever the command runs. Pin it to the
     // Dropbox root so results are stable regardless of where lazydbx started.
-    const result = await $`dropbox exclude list`.cwd(DROPBOX_HOME).text()
+    const result = await $`${DROPBOX_CMD} exclude list`.cwd(DROPBOX_HOME).text()
     const trimmed = result.trim()
     if (!trimmed || trimmed.toLowerCase().includes("no directories are being ignored")) {
       return []
@@ -96,7 +130,7 @@ export async function dbxExcludeList(): Promise<string[]> {
 
 export async function dbxExcludeAdd(path: string): Promise<string> {
   try {
-    const result = await $`dropbox exclude add ${path}`.cwd(DROPBOX_HOME).text()
+    const result = await $`${DROPBOX_CMD} exclude add ${path}`.cwd(DROPBOX_HOME).text()
     return result.trim()
   } catch (e) {
     return `Error: ${e}`
@@ -105,7 +139,7 @@ export async function dbxExcludeAdd(path: string): Promise<string> {
 
 export async function dbxExcludeRemove(path: string): Promise<string> {
   try {
-    const result = await $`dropbox exclude remove ${path}`.cwd(DROPBOX_HOME).text()
+    const result = await $`${DROPBOX_CMD} exclude remove ${path}`.cwd(DROPBOX_HOME).text()
     return result.trim()
   } catch (e) {
     return `Error: ${e}`
@@ -114,7 +148,7 @@ export async function dbxExcludeRemove(path: string): Promise<string> {
 
 export async function dbxFileStatus(path: string): Promise<string> {
   try {
-    const result = await $`dropbox filestatus ${path}`.text()
+    const result = await $`${DROPBOX_CMD} filestatus ${path}`.text()
     return result.trim()
   } catch (e) {
     return `Error: ${e}`
@@ -235,7 +269,7 @@ async function dbxServerLsLocal(dirPath: string): Promise<ServerEntry[]> {
 
 export async function dbxShareLink(path: string): Promise<string> {
   try {
-    const result = await $`dropbox sharelink ${path}`.text()
+    const result = await $`${DROPBOX_CMD} sharelink ${path}`.text()
     return result.trim()
   } catch (e) {
     return `Error: ${e}`
