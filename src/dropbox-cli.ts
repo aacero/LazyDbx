@@ -5,6 +5,11 @@ import { join, basename, dirname, resolve } from "node:path"
 import { homedir } from "node:os"
 import { apiListFolder } from "./dropbox-api.ts"
 
+const localBin = join(homedir(), ".local/bin")
+if (!process.env.PATH?.split(":").includes(localBin)) {
+  process.env.PATH = process.env.PATH ? `${localBin}:${process.env.PATH}` : localBin
+}
+
 function resolveDropboxHome(): string {
   const defaultPath = join(homedir(), "Dropbox")
   try {

@@ -2,6 +2,9 @@
 # lazydbx - TUI for Dropbox Desktop Client
 set -euo pipefail
 
+: "${HOME:=$(eval echo ~)}"
+export PATH="$HOME/.local/bin:$PATH"
+
 find_bun() {
   if command -v bun &>/dev/null; then
     local ver=$(bun --version 2>/dev/null || echo "0")
